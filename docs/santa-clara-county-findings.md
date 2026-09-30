@@ -65,11 +65,79 @@ Five seed APNs were entered **undashed** in [Assessor Real Property Search](http
 
 `parcel.identifier_proven` is **true** on that bounded sample only, not a claim that every seed row was looked up.
 
-## Appraisal smoke (stopped before adapter)
+## Appraisal (bounded 5-parcel GIS path)
 
-`elephant-county ingest --county santa-clara` → **Unknown --county "santa-clara". Known counties: pinellas, duval**. No Santa Clara adapter, flow, or transform in the bundled runtime. Restate `Parcel.process` is not this runtime’s entrypoint.
+**Extension point:** bundled `elephant-county` still only registers `ADAPTERS.pinellas` and `ADAPTERS.duval` (`bin/elephant-county.mjs`). `ingest --county santa-clara` remains **Unknown --county**. Restate `Parcel.process` is not this runtime’s entrypoint. Assessor Real Property Search is ASP.NET/terms-gated and has no documented anonymous GET print URL.
 
-Earlier automation could not complete Search (disabled control). Operator manual Search-by-APN succeeded for the five IDs above.
+**Smallest path implemented (assignment repo, reuse runtime engines):** CountyAdapter verbs in `counties/santa-clara/` plus CommonJS `transforms/data_extractor.js`. Capture is Socrata `ubcd-cewv` JSON (plain GET; query stays in `multiValueQueryString`). Transform writes `data/property.json` + `data/parcel.json` (+ address/lot). `runCountyTransform`, zip, and query-table Parquet come from the bundled runtime — no second ingestion stack.
+
+**Reproducible bounded replay/test:** `node --test tests/santa-clara-ingest.test.mjs`. The assignment-local adapter is exercised directly against the committed replay fixture while official `elephant-county --county santa-clara` registration remains pending.
+
+**Sample (fixture replay, 2026-09-29):** 5/5 verified APNs `09201021`, `14810022`, `09234015`, `10417087`, `09206033` → structural `validateRun` valid, internal query table 5/5. GIS does not carry use codes, owners, or assessed values.
+
+### Live elephant-cli proof (five GIS samples, 2026-09-30)
+
+Not mocked. Manifest loaded from `https://lexicon.elephant.xyz/api/manifest` (GitHub elephant-cli; published npm 1.58.1 still points at a dead HTML `json-schemas` URL).
+
+| Item | Value |
+| --- | --- |
+| CLI package version | 1.58.1 |
+| Installed commit | `44bb182b9f7f904662e9b33e1fde70bdeab62322` (`github:elephant-xyz/elephant-cli` via `tools/package.json`) |
+| Manifest URL | `https://lexicon.elephant.xyz/api/manifest` |
+| Gateway used | `--ipfs-gateway https://gateway.pinata.cloud,https://ipfs.filebase.io,https://trustless-gateway.link` |
+| County schema CID | `bafkreia6tjziby3upxmidymud5iusd32urrztslgrudkwysc7ydmxoekuq` |
+| Seed schema CID | `bafkreibhurphpjdq33ysit57jtzmdldgngepsdbsw4vm7esawth2ezgaxu` |
+| One-sample validate (`09201021`) | exit 0, 0 error rows |
+| Five-sample validate (`data/runs/lexicon-five/samples`) | 5 succeeded, 0 failed, 0 error rows |
+| Hash | 5 properties × 2 data groups (10 `hash.csv` rows); hashed zips under `data/runs/lexicon-five/hashed.zip/` |
+| CAR | `data/runs/lexicon-five/sample-county.car` — 52 blocks, root `baguqeeraj3dsxub2hqv4cajxe4cutkj52xduyhkgksoi42vxnpq3k6itcw3q` |
+| CAR validate | exit 0; 5 properties; 10 data groups; 0 integrity/root/index/graph/lexicon/orphan errors |
+| export-tables | 9 tables, 9 parts, tables root `baguqeeraws47c27kuk72me6medpqqjkwys52ypgucszdlihxfldcvbxshskq` |
+
+Exported row counts (5 each): `properties`, `property`, `address`, `parcel`, `lot`, `property_has_address`, `property_has_parcel`, `property_has_lot`, `address_has_parcel`.
+
+GIS extras that the live class schemas reject (`additionalProperties: false`, no `source_payload` on property/parcel/lot/address) are **not** stored on those records: `objectid`, `tax_rate_area`, `jurisdiction`, `number_of_situs_address`, `shape_length`, raw `shape_area`, situs street number/direction/name/type/unit. Mapped at five-sample time: APN, unnormalized situs, county name, city/state/ZIP, and (then) `lot_area_sqft` from rounded `shape_area`. `property_type` is `LandParcel` (GIS cadastral polygon class; **not** an Assessor use code). Deprecated Seed relationship `property_seed` was omitted so export-tables would not collide with class `property_seed`. The five-sample CAR/tables under `data/runs/lexicon-five/` were left in place after the later `shape_area` unit audit.
+
+### `shape_area` units (authoritative metadata)
+
+Socrata dataset `ubcd-cewv` column `Shape_Area` (`https://data.sccgov.org/api/views/ubcd-cewv.json`) has **empty `format` and no unit/description**. Dataset page column list also has no unit.
+
+Linked ArcGIS layer `https://maps.santaclaracounty.gov/server/rest/services/property/SCCProperty/MapServer/0` (`metadata.arcgis_connection` on the Socrata view) documents **`geometryProperties.units`: `esriMeters`**, `mapUnits.uwkid` **9001**, spatial reference **WKID 102100 / 3857** (Web Mercator). That is the published **geometry** linear unit, not a documented unit on the stored `Shape_Area` attribute (field alias only; no domain). Attribute magnitudes on typical city lots look like US square feet, which conflicts with treating Web Mercator square meters as the attribute unit.
+
+**Conclusion:** stored `shape_area` units are **not proven**. `lot_area_sqft` is now always `null` (schema allows null). No conversion is applied.
+
+### Coverage sample (16 GIS records, 2026-09-30)
+
+Row-shape variability only (no invented use categories). Captures, CARs, and CLI CSVs stay under gitignored `data/runs/lexicon-coverage/` (five-sample run dir untouched).
+
+| APN | Jurisdiction | Why included |
+| --- | --- | --- |
+| 09201021 | SAN JOSE | Identifier-proven baseline |
+| 14810022 | PALO ALTO | Identifier-proven |
+| 09234015 | UNINCORPORATED | Identifier-proven unincorporated |
+| 10417087 | SUNNYVALE | Identifier-proven |
+| 09206033 | MILPITAS | Identifier-proven; `number_of_situs_address`=6 |
+| 08624063 | MILPITAS | `number_of_situs_address`=287; large polygon |
+| 09202001 | SAN JOSE | `situs_unit_number` present |
+| 09206032 | SAN JOSE | Missing house number |
+| 09238058 | SAN JOSE | No situs fields (`number_of_situs_address`=0) |
+| 07006045 | UNINCORPORATED | Missing `situs_city_name`; 2 situs |
+| 62707015 | UNINCORPORATED | Very large `Shape_Area`; 47 situs |
+| 26417108 | SAN JOSE | Tiny `Shape_Area`; no situs |
+| 78322021 | Gilroy | Mixed-case jurisdiction |
+| 27913032 | CAMPBELL | Incorporated Campbell |
+| 19711032 | MOUNTAIN VIEW | Incorporated Mountain View |
+| 10113001 | SANTA CLARA | Santa Clara city |
+
+**Field inventory (capture `$select` vs transform):** every sample’s GIS JSON keys were diffed against `data/*.json`. No class-(a) extractor bugs. Class-(b) not fetched: `the_geom`, `reserved1`, `reserved2`, `reserved3`. Class-(c) present on the capture with no live class home (`additionalProperties: false`, no `source_payload`): `objectid`, `tax_rate_area`, `jurisdiction`, `number_of_situs_address`, `shape_length`, `shape_area`, situs house/suffix/direction/name/type/unit. Mapped when present: `apn`; assembled unnormalized situs; `situs_city_name` → `city_name`; ZIP → postal/plus-four; `situs_state_code` or default `CA`. Blank GIS address parts stay blank/`null` (two samples have `unnormalized_address` null). Per-sample JSON: `data/runs/lexicon-coverage/coverage-inventory.json`.
+
+**Source cannot supply:** Assessor use codes, ownership, assessed/market/land values, legal description, proven lot area/units, lot type/fencing/driveway, `property_usage_type`. `property_type` remains GIS `LandParcel`, not an Assessor class.
+
+**Live CLI (same pin/manifest as five-sample):** validate 16/16, 0 error rows; hash 32 rows (16× Seed `bafkreibhurphpjdq33ysit57jtzmdldgngepsdbsw4vm7esawth2ezgaxu` + County `bafkreia6tjziby3upxmidymud5iusd32urrztslgrudkwysc7ydmxoekuq` from live manifest); CAR 162 blocks, 16 properties, 32 data groups, all checks 0 errors, root `baguqeeraxqgttyhimrxkmrxuictjvzqctau6z3oz6hizzl2bdoe4h7liko5q`; export-tables 9 tables × **16 rows**, tables root `baguqeerasylgnu2dz5i5ytvsacw22vfgjufn6fsg6pd7oblgoq4ihdemwlda`. Tables match emitted classes/relationships: `properties`, `property`, `address`, `parcel`, `lot`, `property_has_address`, `property_has_parcel`, `property_has_lot`, `address_has_parcel`.
+
+CLI `unknown format "percentage"` lines are lexicon schema warnings on unused tax paths, not data rows.
+
+Earlier automation could not complete Assessor Search (disabled control). Operator manual Search-by-APN succeeded for the five IDs above.
 
 ## Permits (classified, adapters not started)
 
