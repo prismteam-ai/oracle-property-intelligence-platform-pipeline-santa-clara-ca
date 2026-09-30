@@ -163,7 +163,13 @@ permits:
       historical_records: true
       search: permits-property-zoning
       probe: official-page-indexed
-      implementation_status: not-started
+      structured_source: https://geo.sanjoseca.gov/server/rest/services/PLN/PLN_PermitsAndComplaints/MapServer
+      structured_layers: [7, 8, 9]
+      adapter_key: arcgis-feature-service
+      assignment_vendor_module: counties/santa-clara/permits/sanjose-arcgis.mjs
+      runtime_registered: false
+      permit_feed: not-started
+      implementation_status: vendor-module-proof-assignment-repo
     - jurisdiction: Santa Clara
       status: supported
       vendor: accela
