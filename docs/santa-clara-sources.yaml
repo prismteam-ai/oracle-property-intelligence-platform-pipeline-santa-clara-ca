@@ -195,8 +195,19 @@ permits:
 identity:
   corporate_registry: california-sos-bizfile
   corporate_registry_url: https://bizfileonline.sos.ca.gov/
+  corporate_registry_status: unresolved
+  sos_production_business_entity_api: government-agencies-only
+  sos_api_key_viable: false
+  sos_unattended_blocker: bizfile-incapsula-and-bulk-account
+  do_not_bypass_incapsula: true
+  do_not_buy_data: true
   licensing_authority: cslb
   licensing_url: https://www.cslb.ca.gov/
+  cslb_public_data_portal: https://www.cslb.ca.gov/Onlineservices/DataPortal/
+  cslb_list_by_county: https://www2.cslb.ca.gov/onlineservices/dataportal/ListByCounty
+  cslb_contractor_list: https://www.cslb.ca.gov/Onlineservices/DataPortal/ContractorList
+  cslb_pilot: santa-clara-c39-private-baseline
+  cslb_lexicon_emit: false
   permit_page_names: search-keys-only
   florida_sunbiz_dbpr: not-applicable
   bundled_skill_status: missing-ca-equivalents

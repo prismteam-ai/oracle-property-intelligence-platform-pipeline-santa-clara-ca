@@ -166,7 +166,52 @@ Live check: unincorporated Accela **CapHome Development** search is public (parc
 
 ## Identity
 
-Reuse the official-identity **stage**, not a new product: SOS BizFile then CSLB license-detail. Bundled runtime still only has Florida Sunbiz/DBPR modules — **gap called, not forked**.
+Reuse the official-identity **stage**, not a new product: SOS BizFile then CSLB. Do not run Florida Sunbiz/DBPR. Permit names/license numbers remain search keys only. Audit 2026-09-30 (read-only; no adapters). Live lexicon: `https://lexicon.elephant.xyz/api/manifest`.
+
+### SOS BizFile (corporate registry)
+
+- Official portal: `https://bizfileonline.sos.ca.gov/` (search `…/search/business`). Help: `https://bpd.cdn.sos.ca.gov/ucc/ucc-online-help.pdf`. Records overview: `https://www.sos.ca.gov/business-programs/business-entities/information-requests/`.
+- Public search (no account): Corp/LLC/LP abstracts — entity name/number, filing/conversion date, status, FTB/SOS/agent standing, jurisdiction, street/mailing, agent for service, SI due date, officer/director/member/manager names and addresses on the portal, imaged Statements of Information. Basic search is **ACTIVE only**; Advanced Search for other statuses; **500-result cap**. GP/LLP/sole props **not** in the online search (paper order form). SOS **does not collect ownership**.
+- Entity numbers: corporations historically `C` + 7 digits; LLC/LP 12-digit; new Corp/LLC/LP use 12-character IDs starting with `B`.
+- Plain copies of images: free without account. Certified copies / certificates of status: **Okta login**.
+- Bulk BE: Data Requests after login. Master unload **$100**; weekly unloads **free**. Not a no-login public dump. **Do not buy data** for this run.
+- Production Business Entity API (`calico.sos.ca.gov`) is **government agencies only**. A developer-portal subscription key is **not** a viable candidate path unless access is explicitly granted. Do not treat API signup as a substitute for BizFile.
+- Unattended `curl` of bizfileonline returns **Incapsula** (~212-byte HTML). **Do not bypass Incapsula.** Playwright without challenge-bypass is not proven here. Unattended access / bulk acquisition is the current SOS blocker.
+
+### CSLB (contractor licensing)
+
+- Instant License Check (public HTML, no login observed): `https://www.cslb.ca.gov/OnlineServices/CheckLicenseII/CheckLicense.aspx`. License numbers are numeric, ≤8 digits. Maintenance window Sun 20:00–Mon 06:00. Detail GET by querystring was **not** a stable unique URL in this probe (`LicenseDetail.aspx?LicNum=` redirected to the search form).
+- Free Public Data Portal (no fee): `https://www.cslb.ca.gov/Onlineservices/DataPortal/ContractorList` — License Master + Personnel + Workers’ Comp, Excel/CSV, **as-of date on the page**. Current **renewed or expired-but-renewable only**. Excludes cancelled, revoked, expired-nonrenewable; personnel file excludes disassociated people; no emails (B&P 27). County/classification lists also available.
+- **Private pilot (2026-09-30):** official ListByCounty POST (Santa Clara county code `43` + `C-39`, SHA-256 `f30313c8301e6163df44d91f2e99558564768565dd4f51e10b3d2f09a6668a7d`) plus statewide Personnel CSV (`9b91a0483e49218bf478da9b9cf71560ead2976161e954d28e4a32dfcb6bfa49`) filtered to those licenses. Snapshot is gitignored under `data/identity/cslb/pilot-santa-clara-c39/`. 224 licenses, 456 personnel rows, 224/224 licenses linked. Portal as-of **9/29/2026**. No lexicon/Atlas emit.
+- Paid FULL/UPDATE files ($235/file, Data Services 916-255-3975): License Master (~700k+), Business Principal, WC, Action Codes, Complaint. January/July full + monthly updates. Required analog of DBPR relationship-history extract for inactive/history. **Do not buy** for this run.
+- Daily posting lists (PDF): `https://www.cslb.ca.gov/consumers/data.aspx`.
+- DCA Open Data is **statistics**, not license identity.
+
+### Live lexicon mapping (do not invent edges)
+
+| Oracle / FL pattern | CA source | Live lexicon |
+| --- | --- | --- |
+| Sunbiz `document_number` stamp | SOS **entity number** | `company` requires `sunbiz_document_number` (Florida-named; **null allowed**). Do **not** put a CA entity number in that field. No CA entity-number property. `additionalProperties: false`. |
+| DBPR license class + `contractor_has_license` | CSLB license number | **No `license` class** in the live manifest. Property Improvement group has `property_improvement_has_contractor` and `contractor_has_person` but **not** `contractor_has_license`. |
+| Qualifier person | CSLB personnel / Instant Check | `person` requires `first_name`/`last_name` (strict Title Case pattern); birth/citizenship/veteran **nullable**. CSLB does not publish birth/citizenship. |
+| PI → company | After a CSLB match only | `property_improvement_has_contractor` exists; write only when permits exist **and** CSLB detail matched. Not this stage. |
+
+### Smallest next implementation (no permits)
+
+1. Do not call `sunbiz-*` / DBPR commands.
+2. **Done (private only):** CSLB Public Data Portal Santa Clara + C-39 ListByCounty workbook, plus statewide Personnel CSV filtered to those license numbers (ListByCounty has no qualifiers). SHA-256, portal as-of, raw schema, assignment-local parser. No lexicon `company` / `person` / license edges / Atlas while SOS remains unresolved.
+3. SOS remains blocked: BizFile Incapsula on unattended GET; bulk needs an SOS account (do not buy; do not bypass). Production BE API is government-agencies-only — not a candidate path without explicit access.
+4. Do **not** emit `company` (including `sunbiz_document_number: null`) until SOS identity is resolved. Keep CA entity numbers out of lexicon fields.
+5. Do not emit `license` or `contractor_has_license` (live manifest still lacks them). Keep CSLB rows in the private snapshot.
+6. Do not write `company_to_person` until SOS corporate identity exists to stamp the company.
+
+### Blockers needing a human
+
+- SOS BizFile **unattended access / bulk acquisition** (Incapsula; Okta account for official bulk). Do not bypass Incapsula. Do not buy data.
+- SOS production Business Entity API is **government agencies only** — not available via a generic developer key in this assignment.
+- Paid CSLB full/history files if historical qualification of **license-less** permits is later required (out of scope; do not buy).
+- Lexicon: Florida `sunbiz_document_number` on `company`; missing `license` class and `contractor_has_license`.
+- Bundled runtime has no CA identity modules (`elephant-county` still Florida-only for this stage).
 
 ## Destination
 
