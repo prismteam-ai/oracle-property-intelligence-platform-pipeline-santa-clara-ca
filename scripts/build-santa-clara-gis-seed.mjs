@@ -6,29 +6,19 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  SOCRATA_PAGE_LIMIT,
+  SOCRATA_RESOURCE_URL,
+  SOCRATA_SELECT,
+  SOCRATA_SOURCE_DATASET_URL,
+  socrataPageUrl,
+} from "../counties/santa-clara/seed.mjs";
 
 const DATASET = "ubcd-cewv";
-const BASE = `https://data.sccgov.org/resource/${DATASET}.json`;
-const SOURCE_URL = "https://data.sccgov.org/Government/Parcels/ubcd-cewv";
-const PAGE = 50000;
-const SELECT = [
-  "apn",
-  "objectid",
-  "tax_rate_area",
-  "situs_house_number",
-  "situs_house_number_suffix",
-  "situs_street_direction",
-  "situs_street_name",
-  "situs_street_type",
-  "situs_unit_number",
-  "situs_city_name",
-  "situs_state_code",
-  "situs_zip_code",
-  "number_of_situs_address",
-  "jurisdiction",
-  "shape_length",
-  "shape_area",
-].join(",");
+const BASE = SOCRATA_RESOURCE_URL;
+const SOURCE_URL = SOCRATA_SOURCE_DATASET_URL;
+const PAGE = SOCRATA_PAGE_LIMIT;
+const SELECT = SOCRATA_SELECT;
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = path.join(root, "data", "seeds");
@@ -57,20 +47,22 @@ function assembleSitus(row) {
 }
 
 async function fetchPage(offset) {
-  const url = `${BASE}?$select=${encodeURIComponent(SELECT)}&$order=objectid&$limit=${PAGE}&$offset=${offset}`;
+  const url = socrataPageUrl({ offset, limit: PAGE });
   const response = await fetch(url, { headers: { Accept: "application/json" } });
   if (!response.ok) {
     throw new Error(`Socrata ${response.status} at offset ${offset}: ${await response.text()}`);
   }
-  return response.json();
+  return { page: await response.json(), pageOffset: offset, pageLimit: PAGE };
 }
 
 const retrievedAt = new Date().toISOString();
 const rows = [];
 for (let offset = 0; ; offset += PAGE) {
-  const page = await fetchPage(offset);
+  const { page, pageOffset, pageLimit } = await fetchPage(offset);
   console.error(`fetched offset=${offset} n=${page.length}`);
-  rows.push(...page);
+  for (const row of page) {
+    rows.push({ ...row, page_offset: String(pageOffset), page_limit: String(pageLimit) });
+  }
   if (page.length < PAGE) break;
 }
 
@@ -117,6 +109,8 @@ const header = [
   "source_dataset_url",
   "source_retrieved_at",
   "geometry_join_key",
+  "page_offset",
+  "page_limit",
 ];
 
 const csvLines = [header.join(",")];
@@ -145,6 +139,8 @@ for (const row of valid) {
       csvCell(SOURCE_URL),
       csvCell(retrievedAt),
       csvCell(row.objectid ?? ""),
+      csvCell(row.page_offset ?? ""),
+      csvCell(row.page_limit ?? ""),
     ].join(","),
   );
 }
@@ -174,7 +170,7 @@ const manifest = {
   seed_row_count: valid.length,
   apn_length_histogram: apnLengths,
   geometry_provenance:
-    "Full MultiPolygon remains in the public GIS dataset. Seed stores objectid as geometry_join_key plus shape_area/shape_length, dataset URL, and retrieve timestamp. APNs are exact GIS text.",
+    "Full MultiPolygon remains in the public GIS dataset. Seed stores objectid as geometry_join_key plus shape_area/shape_length, dataset URL, and retrieve timestamp. APNs are exact GIS text. This CSV is evidence of an earlier public-GIS run; it is not exact-request provenance for publication. A future full run must recapture pages with source_http_request and SHA-256 recorded at fetch time.",
   seed_csv: "data/seeds/santa-clara.csv",
   seed_csv_sha256: seedSha256,
   seed_csv_bytes: csvText.length,

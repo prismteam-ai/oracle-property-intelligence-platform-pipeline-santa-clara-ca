@@ -15,7 +15,7 @@ export const COUNTY_NAME = "Santa Clara";
 export const COUNTY_FIPS = "06085";
 export const STATE_CODE = "CA";
 export const SOCRATA_RESOURCE_URL = "https://data.sccgov.org/resource/ubcd-cewv.json";
-export const SOCRATA_SELECT = [
+export const SOCRATA_SELECT_FIELDS = Object.freeze([
   "apn",
   "objectid",
   "tax_rate_area",
@@ -32,7 +32,10 @@ export const SOCRATA_SELECT = [
   "jurisdiction",
   "shape_length",
   "shape_area",
-].join(",");
+]);
+export const SOCRATA_SELECT = SOCRATA_SELECT_FIELDS.join(",");
+export const SOCRATA_PAGE_LIMIT = 50000;
+export const SOCRATA_SOURCE_DATASET_URL = "https://data.sccgov.org/Government/Parcels/ubcd-cewv";
 
 export const SAMPLE_PARCEL_IDS = Object.freeze([
   "09201021",
@@ -65,6 +68,10 @@ export const SEED_COLUMNS = Object.freeze([
   "source_dataset_url",
   "source_retrieved_at",
   "geometry_join_key",
+  "page_offset",
+  "page_limit",
+  "capture_sha256",
+  "capture_file",
   "method",
   "url",
   "multiValueQueryString",
@@ -91,6 +98,38 @@ export function socrataQueryForApn(parcelId) {
     $where: [`apn='${parcelId}'`],
     $limit: ["1"],
   };
+}
+
+/** Query string for a paginated Socrata page GET recorded at capture time. */
+export function socrataQueryForPage({ offset, limit = SOCRATA_PAGE_LIMIT } = {}) {
+  if (offset == null || offset === "") {
+    throw new Error("paginated Socrata request requires exact $offset recorded at capture time");
+  }
+  if (limit == null || limit === "") {
+    throw new Error("paginated Socrata request requires exact $limit recorded at capture time");
+  }
+  return {
+    $select: [SOCRATA_SELECT],
+    $order: ["objectid"],
+    $limit: [String(limit)],
+    $offset: [String(offset)],
+  };
+}
+
+export function buildBulkPageSourceHttpRequest({ offset, limit = SOCRATA_PAGE_LIMIT } = {}) {
+  return {
+    method: "GET",
+    url: SOCRATA_RESOURCE_URL,
+    multiValueQueryString: socrataQueryForPage({ offset, limit }),
+  };
+}
+
+export function socrataPageUrl({ offset = 0, limit = SOCRATA_PAGE_LIMIT } = {}) {
+  const url = new URL(SOCRATA_RESOURCE_URL);
+  for (const [key, values] of Object.entries(socrataQueryForPage({ offset, limit }))) {
+    url.searchParams.set(key, values[0]);
+  }
+  return url.toString();
 }
 
 export function toSocrataCaptureUrl(row) {

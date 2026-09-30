@@ -20,6 +20,7 @@ import {
   socrataQueryForApn,
   buildSeed as buildSantaClaraSeedFiles,
 } from "./seed.mjs";
+import { assertExactPageRequest } from "./page-capture.mjs";
 import { mapTransformedFilesToQueryTableRow, loadQueryTableSchemaFields } from "./query-table.mjs";
 
 const COUNTY_ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -66,9 +67,17 @@ export function parseSeedQueryString(raw, parcelId) {
 
 export function buildSourceHttpRequest(row) {
   const parcelId = toText(row.parcel_id);
+  const url = toText(row.url) || SOCRATA_RESOURCE_URL;
+  const method = toText(row.method) || "GET";
+  if (toText(row.capture_sha256)) {
+    const multiValueQueryString = parseSeedQueryString(row.multiValueQueryString, parcelId);
+    const sourceHttpRequest = { url, method, multiValueQueryString };
+    assertExactPageRequest(sourceHttpRequest);
+    return sourceHttpRequest;
+  }
   return {
-    url: toText(row.url) || SOCRATA_RESOURCE_URL,
-    method: toText(row.method) || "GET",
+    url,
+    method,
     multiValueQueryString: parseSeedQueryString(row.multiValueQueryString, parcelId),
   };
 }
@@ -154,6 +163,7 @@ export async function captureAndTransform({
   htmlDir,
   outputDir,
   liveFetch = false,
+  bulkGisByApn = null,
   runtimeRoot = defaultRuntimeRoot(),
 }) {
   const { runCountyTransform, AdmZipCtor } = await loadRuntimeModules(runtimeRoot);
@@ -167,20 +177,47 @@ export async function captureAndTransform({
       const fixturePath = path.join(htmlDir, `${parcelId}.html`);
       const inputPath = path.join(parcelDir, "input.html");
       let body;
+      let seedRow = row;
+      let captureKind = "fixture_html";
       if (await pathExists(fixturePath)) {
         body = await readFile(fixturePath, "utf8");
         await copyFile(fixturePath, inputPath);
+      } else if (bulkGisByApn instanceof Map && bulkGisByApn.has(toText(parcelId))) {
+        const entry = bulkGisByApn.get(toText(parcelId));
+        assertExactPageRequest(entry.sourceHttpRequest);
+        seedRow = entry.row;
+        body = `${JSON.stringify([entry.gisRecord])}\n`;
+        await writeFile(inputPath, body, "utf8");
+        captureKind = entry.captureKind;
+        await writeFile(
+          path.join(parcelDir, "bulk_capture.json"),
+          `${JSON.stringify(
+            {
+              captureKind: entry.captureKind,
+              sourceDatasetUrl: entry.sourceDatasetUrl,
+              sourceRetrievedAt: entry.sourceRetrievedAt,
+              pageOffset: entry.pageOffset,
+              pageLimit: entry.pageLimit,
+              captureSha256: entry.captureSha256,
+              captureFile: entry.captureFile,
+              sourceHttpRequest: entry.sourceHttpRequest,
+            },
+            null,
+            2,
+          )}\n`,
+        );
       } else if (liveFetch === true) {
         body = await fetchGisJson(row);
         await writeFile(inputPath, body, "utf8");
+        captureKind = "live_per_apn_socrata_get";
       } else {
         throw new Error(
-          `No local GIS fixture for parcel ${parcelId} at ${fixturePath} and --live-fetch was not supplied; refusing to contact Socrata.`,
+          `No local GIS fixture for parcel ${parcelId} at ${fixturePath}, no bulk GIS page index for that APN, and --live-fetch was not supplied; refusing to contact Socrata.`,
         );
       }
 
       assertGisMatchesRequestedApn(body, parcelId);
-      const seedFiles = buildSeedJsonFiles(row);
+      const seedFiles = buildSeedJsonFiles(seedRow);
       await writeFile(path.join(parcelDir, "property_seed.json"), `${JSON.stringify(seedFiles.propertySeed, null, 2)}\n`);
       await writeFile(
         path.join(parcelDir, "unnormalized_address.json"),
@@ -203,6 +240,7 @@ export async function captureAndTransform({
       await zipDataDirectory(AdmZipCtor, dataDir, path.join(parcelDir, "transformed.zip"));
       results.push({
         parcelId,
+        captureKind,
         transformSuccess: true,
         propertyUsageType: typeof result.property_usage_type === "string" ? result.property_usage_type : null,
         error: null,
@@ -210,6 +248,7 @@ export async function captureAndTransform({
     } catch (error) {
       results.push({
         parcelId,
+        captureKind: null,
         transformSuccess: false,
         propertyUsageType: null,
         error: error instanceof Error ? error.message : String(error),

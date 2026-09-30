@@ -1,5 +1,6 @@
 data/seeds/santa-clara.csv
 data/runs/
+data/captures/
 data/identity/
 tools/node_modules/
 submit_errors.csv
