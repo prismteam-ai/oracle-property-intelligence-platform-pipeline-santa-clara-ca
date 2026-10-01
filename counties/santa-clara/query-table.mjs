@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
+import { normalizeSantaClaraParcelIdentifier } from "./permits/apn.mjs";
 import { defaultRuntimeRoot } from "./seed.mjs";
 
 export const SOURCE_SYSTEM = "santa_clara_gis";
@@ -31,6 +32,48 @@ function toNumber(value) {
 function toInteger(value) {
   const parsed = toNumber(value);
   return parsed == null ? null : Math.trunc(parsed);
+}
+
+/**
+ * Roof-age columns only. These names are the CRM snapshot fields that match
+ * the query-table roof-age columns, plus builtYear and olderThan15Years.
+ * This schema is not the full county query table.
+ */
+export const ROOF_AGE_TABLE_SCHEMA_FIELDS = Object.freeze({
+  parcel_identifier: { type: "UTF8" },
+  builtYear: { type: "INT64", optional: true },
+  roof_date: { type: "UTF8", optional: true },
+  roof_age_years: { type: "INT64", optional: true },
+  roof_age_source: { type: "UTF8", optional: true },
+  roof_age_confidence: { type: "UTF8", optional: true },
+  roof_age_permit_id: { type: "UTF8", optional: true },
+  roof_age_eligibility_reason: { type: "UTF8", optional: true },
+  olderThan15Years: { type: "BOOLEAN" },
+});
+
+/**
+ * Map one in-memory roof-age snapshot parcel onto a query row.
+ * The row is keyed by the undashed APN. This function does not read zips.
+ */
+export function mapRoofAgeSnapshotParcelToQueryRow(parcel) {
+  if (parcel == null || typeof parcel !== "object") {
+    throw new Error("roof-age snapshot parcel must be an object");
+  }
+  const parcelIdentifier = normalizeSantaClaraParcelIdentifier(parcel.parcel_identifier);
+  if (parcel.olderThan15Years !== true && parcel.olderThan15Years !== false) {
+    throw new Error(`${parcelIdentifier} olderThan15Years must be boolean`);
+  }
+  return {
+    parcel_identifier: parcelIdentifier,
+    builtYear: toInteger(parcel.builtYear),
+    roof_date: toText(parcel.roof_date),
+    roof_age_years: toInteger(parcel.roof_age_years),
+    roof_age_source: toText(parcel.roof_age_source),
+    roof_age_confidence: toText(parcel.roof_age_confidence),
+    roof_age_permit_id: toText(parcel.roof_age_permit_id),
+    roof_age_eligibility_reason: toText(parcel.roof_age_eligibility_reason),
+    olderThan15Years: parcel.olderThan15Years,
+  };
 }
 
 export async function loadQueryTableSchemaFields(runtimeRoot = defaultRuntimeRoot()) {
