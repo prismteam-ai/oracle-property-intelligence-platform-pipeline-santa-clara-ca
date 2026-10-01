@@ -108,6 +108,7 @@ export async function mapTransformedFilesToQueryTableRow({
     street: addressStreet,
   });
   const lotAreaSqft = toNumber(lot.lot_area_sqft);
+  const geometry = files["geometry.json"] ?? {};
   return {
     property_id: santaClaraPropertyId(parcelId),
     property_cid: null,
@@ -121,8 +122,8 @@ export async function mapTransformedFilesToQueryTableRow({
     address_zip: addressZip,
     elephant_uuid: identity?.elephantUuid ?? null,
     elephant_token: identity?.elephantToken ?? null,
-    latitude: toNumber(seedRow?.latitude),
-    longitude: toNumber(seedRow?.longitude),
+    latitude: toNumber(geometry.latitude) ?? toNumber(seedRow?.latitude),
+    longitude: toNumber(geometry.longitude) ?? toNumber(seedRow?.longitude),
     lot_size_acre: lotAreaSqft !== null ? lotAreaSqft / 43_560 : null,
     lot_area_sqft: lotAreaSqft,
     exterior_wall_material: null,
