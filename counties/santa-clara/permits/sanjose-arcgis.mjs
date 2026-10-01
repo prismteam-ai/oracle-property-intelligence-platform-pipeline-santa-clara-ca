@@ -103,6 +103,39 @@ function roofingFromSourceText(...values) {
   return values.some((value) => /roof|reroof|re-roof|shingle/i.test(String(value ?? "")));
 }
 
+/**
+ * One ArcGIS JSON query. Same URL shape as parcel search:
+ * HTTPS `/query`, `f=json`, `returnGeometry=false`, `outFields`.
+ * Caller parameters override those defaults (count queries pass `outFields=""`).
+ */
+export async function querySanJoseArcgisLayer(layer, parameters = {}, options = {}) {
+  const httpClient =
+    options.client ??
+    new PermitHttpClient({
+      minimumDelayMs: options.minimumDelayMs ?? 500,
+      maxAttempts: options.maxAttempts ?? 4,
+      timeoutMs: options.timeoutMs ?? 60_000,
+    });
+  const { body: payload } = await httpClient.json(
+    queryUrl(layer.url, {
+      f: "json",
+      outFields: "*",
+      returnGeometry: false,
+      ...parameters,
+    }),
+  );
+  if (payload.error) {
+    throw new PermitSourceError(
+      `ArcGIS query failed: ${payload.error.message ?? "unknown error"}`,
+      {
+        classification: "permanent",
+        code: "arcgis_query_failed",
+      },
+    );
+  }
+  return payload;
+}
+
 export function sanJoseArcgisJurisdiction() {
   return {
     key: "san-jose",
@@ -240,24 +273,7 @@ export function createSanJoseArcgisAdapter(jurisdiction, options = {}) {
     });
 
   async function executeQuery(layer, parameters) {
-    const { body: payload } = await httpClient.json(
-      queryUrl(layer.url, {
-        f: "json",
-        outFields: "*",
-        returnGeometry: false,
-        ...parameters,
-      }),
-    );
-    if (payload.error) {
-      throw new PermitSourceError(
-        `ArcGIS query failed: ${payload.error.message ?? "unknown error"}`,
-        {
-          classification: "permanent",
-          code: "arcgis_query_failed",
-        },
-      );
-    }
-    return payload;
+    return querySanJoseArcgisLayer(layer, parameters, { client: httpClient });
   }
 
   return {

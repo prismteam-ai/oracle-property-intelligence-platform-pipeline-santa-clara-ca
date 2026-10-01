@@ -38,7 +38,13 @@ export async function loadQueryTableSchemaFields(runtimeRoot = defaultRuntimeRoo
   return pinellas.QUERY_TABLE_SCHEMA_FIELDS;
 }
 
-export async function mapTransformedFilesToQueryTableRow({ parcelId, files, seedRow = null, runtimeRoot = defaultRuntimeRoot() }) {
+export async function mapTransformedFilesToQueryTableRow({
+  parcelId,
+  files,
+  seedRow = null,
+  roofAgeLineage = null,
+  runtimeRoot = defaultRuntimeRoot(),
+}) {
   const queryTable = await import(pathToFileURL(path.join(runtimeRoot, "src/core/query-table.mjs")).href);
   const address = await import(pathToFileURL(path.join(runtimeRoot, "src/core/address-signature.mjs")).href);
   const roofAge = await import(pathToFileURL(path.join(runtimeRoot, "src/roof-age/integration.ts")).href);
@@ -78,7 +84,15 @@ export async function mapTransformedFilesToQueryTableRow({ parcelId, files, seed
     lot_area_sqft: lotAreaSqft,
     exterior_wall_material: null,
     roof_covering_material: null,
-    ...roofAge.roofAgeQueryFields({}),
+    ...roofAge.roofAgeQueryFields(
+      roofAgeLineage
+        ? {
+            roof_date: roofAgeLineage.roofDate ?? null,
+            roof_age_years: roofAgeLineage.roofAgeYears ?? null,
+            source_payload: { roof_age_lineage: roofAgeLineage },
+          }
+        : {},
+    ),
     property_type: toText(property.property_type),
     property_usage_type: toText(property.property_usage_type),
     ownership_estate_type: toText(property.ownership_estate_type),

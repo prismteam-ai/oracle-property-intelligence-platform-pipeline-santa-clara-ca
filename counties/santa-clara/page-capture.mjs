@@ -1,7 +1,8 @@
 /**
  * Capture-layer provenance for paginated Socrata GIS pages.
  * Records the exact GET at fetch time. Replay copies that stored request;
- * it does not reconstruct $offset / $limit after the fact from the old seed CSV.
+ * it does not reconstruct $offset / $limit / $select after the fact.
+ * A stored page whose $select omits the_geom is not a resume hit.
  */
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -86,18 +87,44 @@ export function pageCaptureDirName({ offset, limit }) {
   return `offset-${offset}-limit-${limit}`;
 }
 
+export function classifyGisApn(apn) {
+  const text = toText(apn);
+  if (!text) return "missing";
+  if (!/^\d{8}$/.test(text)) return "invalid";
+  return "valid";
+}
+
 export async function captureSocrataPage({
   offset,
   limit = SOCRATA_PAGE_LIMIT,
   outDir,
   fetchImpl = globalThis.fetch,
   sourceDatasetUrl = SOCRATA_SOURCE_DATASET_URL,
+  resume = false,
 }) {
   if (offset == null || offset === "") {
     throw new Error("captureSocrataPage requires exact $offset");
   }
   if (typeof fetchImpl !== "function") {
     throw new Error("captureSocrataPage requires fetchImpl");
+  }
+  if (resume) {
+    try {
+      const loaded = await loadPageCapture(outDir);
+      const expected = buildBulkPageSourceHttpRequest({ offset, limit });
+      const storedQs = loaded.sourceHttpRequest?.multiValueQueryString;
+      const expectedQs = expected.multiValueQueryString;
+      if (
+        storedQs?.$offset?.[0] === expectedQs.$offset[0] &&
+        storedQs?.$limit?.[0] === expectedQs.$limit[0] &&
+        storedQs?.$order?.[0] === expectedQs.$order[0] &&
+        storedQs?.$select?.[0] === expectedQs.$select[0]
+      ) {
+        return { ...loaded, resumed: true };
+      }
+    } catch {
+      // Recapture.
+    }
   }
   const sourceHttpRequest = buildBulkPageSourceHttpRequest({ offset, limit });
   assertExactPageRequest(sourceHttpRequest);
@@ -137,7 +164,7 @@ export async function captureSocrataPage({
     httpElapsedSeconds: Number(httpElapsedNs) / 1e9,
   };
   await writeFile(path.join(outDir, PAGE_CAPTURE_META_NAME), `${JSON.stringify(meta, null, 2)}\n`);
-  return { ...meta, records, rawBytes, outDir };
+  return { ...meta, records, rawBytes, outDir, resumed: false };
 }
 
 export async function loadPageCapture(outDir) {
@@ -156,7 +183,7 @@ export async function loadPageCapture(outDir) {
   return { ...meta, records, rawBytes, outDir, captureFile };
 }
 
-export function indexBulkGisFromPageCapture(capture) {
+export function bulkEntryFromCapturedRecord(capture, gisRecord) {
   const { offset, limit } = assertExactPageRequest(capture.sourceHttpRequest);
   const sha256 = toText(capture.sha256);
   if (!sha256) throw new Error("page capture is missing sha256");
@@ -165,6 +192,56 @@ export function indexBulkGisFromPageCapture(capture) {
   const captureFile = toText(capture.captureFile) || PAGE_JSON_NAME;
   const sourceDatasetUrl = toText(capture.sourceDatasetUrl) || SOCRATA_SOURCE_DATASET_URL;
   const sourceHttpRequest = capture.sourceHttpRequest;
+  const apn = toText(gisRecord?.apn);
+  const row = {
+    parcel_id: apn,
+    source_identifier: apn,
+    situs_address: assembleSitus(gisRecord),
+    objectid: gisRecord.objectid ?? "",
+    tax_rate_area: gisRecord.tax_rate_area ?? "",
+    jurisdiction: gisRecord.jurisdiction ?? "",
+    situs_house_number: gisRecord.situs_house_number ?? "",
+    situs_house_number_suffix: gisRecord.situs_house_number_suffix ?? "",
+    situs_street_direction: gisRecord.situs_street_direction ?? "",
+    situs_street_name: gisRecord.situs_street_name ?? "",
+    situs_street_type: gisRecord.situs_street_type ?? "",
+    situs_unit_number: gisRecord.situs_unit_number ?? "",
+    situs_city_name: gisRecord.situs_city_name ?? "",
+    situs_state_code: gisRecord.situs_state_code ?? "",
+    situs_zip_code: gisRecord.situs_zip_code ?? "",
+    number_of_situs_address: gisRecord.number_of_situs_address ?? "",
+    shape_length: gisRecord.shape_length ?? "",
+    shape_area: gisRecord.shape_area ?? "",
+    source_dataset_id: "ubcd-cewv",
+    source_dataset_url: sourceDatasetUrl,
+    source_retrieved_at: retrievedAt,
+    geometry_join_key: gisRecord.objectid ?? "",
+    method: sourceHttpRequest.method,
+    url: sourceHttpRequest.url,
+    multiValueQueryString: JSON.stringify(sourceHttpRequest.multiValueQueryString),
+    capture_sha256: sha256,
+    capture_file: captureFile,
+    page_offset: offset,
+    page_limit: limit,
+    county: COUNTY_NAME,
+    county_fips: COUNTY_FIPS,
+    state: STATE_CODE,
+  };
+  return {
+    row,
+    gisRecord,
+    sourceHttpRequest,
+    captureSha256: sha256,
+    captureFile,
+    pageOffset: offset,
+    pageLimit: limit,
+    sourceRetrievedAt: retrievedAt,
+    sourceDatasetUrl,
+    captureKind: PAGE_CAPTURE_KIND,
+  };
+}
+
+export function indexBulkGisFromPageCapture(capture) {
   /** @type {Map<string, object>} */
   const index = new Map();
   for (const gisRecord of capture.records) {
@@ -173,52 +250,7 @@ export function indexBulkGisFromPageCapture(capture) {
     if (index.has(apn)) {
       throw new Error(`Duplicate APN in captured GIS page: ${apn}`);
     }
-    const row = {
-      parcel_id: apn,
-      source_identifier: apn,
-      situs_address: assembleSitus(gisRecord),
-      objectid: gisRecord.objectid ?? "",
-      tax_rate_area: gisRecord.tax_rate_area ?? "",
-      jurisdiction: gisRecord.jurisdiction ?? "",
-      situs_house_number: gisRecord.situs_house_number ?? "",
-      situs_house_number_suffix: gisRecord.situs_house_number_suffix ?? "",
-      situs_street_direction: gisRecord.situs_street_direction ?? "",
-      situs_street_name: gisRecord.situs_street_name ?? "",
-      situs_street_type: gisRecord.situs_street_type ?? "",
-      situs_unit_number: gisRecord.situs_unit_number ?? "",
-      situs_city_name: gisRecord.situs_city_name ?? "",
-      situs_state_code: gisRecord.situs_state_code ?? "",
-      situs_zip_code: gisRecord.situs_zip_code ?? "",
-      number_of_situs_address: gisRecord.number_of_situs_address ?? "",
-      shape_length: gisRecord.shape_length ?? "",
-      shape_area: gisRecord.shape_area ?? "",
-      source_dataset_id: "ubcd-cewv",
-      source_dataset_url: sourceDatasetUrl,
-      source_retrieved_at: retrievedAt,
-      geometry_join_key: gisRecord.objectid ?? "",
-      method: sourceHttpRequest.method,
-      url: sourceHttpRequest.url,
-      multiValueQueryString: JSON.stringify(sourceHttpRequest.multiValueQueryString),
-      capture_sha256: sha256,
-      capture_file: captureFile,
-      page_offset: offset,
-      page_limit: limit,
-      county: COUNTY_NAME,
-      county_fips: COUNTY_FIPS,
-      state: STATE_CODE,
-    };
-    index.set(apn, {
-      row,
-      gisRecord,
-      sourceHttpRequest,
-      captureSha256: sha256,
-      captureFile,
-      pageOffset: offset,
-      pageLimit: limit,
-      sourceRetrievedAt: retrievedAt,
-      sourceDatasetUrl,
-      captureKind: PAGE_CAPTURE_KIND,
-    });
+    index.set(apn, bulkEntryFromCapturedRecord(capture, gisRecord));
   }
   return index;
 }

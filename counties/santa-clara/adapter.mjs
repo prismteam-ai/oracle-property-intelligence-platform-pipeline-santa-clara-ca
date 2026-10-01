@@ -119,10 +119,29 @@ export function assertGisMatchesRequestedApn(body, parcelId) {
   return record;
 }
 
+export function assertGeometryJoinKey(gisRecord, seedRow) {
+  const joinKey = toText(seedRow?.geometry_join_key);
+  if (!joinKey) return;
+  const objectId = toText(gisRecord?.objectid);
+  if (objectId !== joinKey) {
+    throw new Error(`geometry_join_key ${joinKey} does not match GIS objectid ${objectId || "(missing)"}`);
+  }
+}
+
 async function pathExists(candidate) {
   try {
     await access(candidate);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+async function transformedZipHasGeometry(parcelDir, runtimeRoot) {
+  const { readTransformedZipJsonFiles } = await loadRuntimeModules(runtimeRoot);
+  try {
+    const files = readTransformedZipJsonFiles(path.join(parcelDir, "transformed.zip"));
+    return files["geometry.json"] !== undefined;
   } catch {
     return false;
   }
@@ -135,6 +154,28 @@ export async function hasCompletedTransform(parcelDir) {
     return buffer.length >= MIN_TRANSFORMED_ZIP_BYTES && buffer.subarray(0, 4).equals(ZIP_LOCAL_FILE_MAGIC);
   } catch {
     return false;
+  }
+}
+
+export async function inspectParcelTransform(parcelDir, options = {}) {
+  const runtimeRoot = options.runtimeRoot ?? defaultRuntimeRoot();
+  const { readTransformedZipJsonFiles } = await loadRuntimeModules(runtimeRoot);
+  if (!(await hasCompletedTransform(parcelDir))) {
+    return { valid: false, reason: "transformed.zip missing, too small, or not PKZIP" };
+  }
+  try {
+    const files = readTransformedZipJsonFiles(path.join(parcelDir, "transformed.zip"));
+    for (const required of REQUIRED_DATA_ARTIFACTS) {
+      if (files[required] === undefined) {
+        return { valid: false, reason: `transformed.zip is missing data/${required}` };
+      }
+    }
+    return { valid: true, reason: null };
+  } catch (error) {
+    return {
+      valid: false,
+      reason: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -164,6 +205,9 @@ export async function captureAndTransform({
   outputDir,
   liveFetch = false,
   bulkGisByApn = null,
+  skipCompleted = false,
+  writeManifest = true,
+  onParcel = null,
   runtimeRoot = defaultRuntimeRoot(),
 }) {
   const { runCountyTransform, AdmZipCtor } = await loadRuntimeModules(runtimeRoot);
@@ -174,6 +218,25 @@ export async function captureAndTransform({
     const parcelDir = path.join(outputDir, parcelId);
     await mkdir(parcelDir, { recursive: true });
     try {
+      const bulkEntry =
+        bulkGisByApn instanceof Map && bulkGisByApn.has(toText(parcelId)) ? bulkGisByApn.get(toText(parcelId)) : null;
+      const captureHasGeom = bulkEntry?.gisRecord?.the_geom != null;
+      if (skipCompleted && (await hasCompletedTransform(parcelDir))) {
+        const geometryReady = !captureHasGeom || (await transformedZipHasGeometry(parcelDir, runtimeRoot));
+        if (geometryReady) {
+          const skipped = {
+            parcelId,
+            captureKind: "skipped_completed",
+            transformSuccess: true,
+            skipped: true,
+            propertyUsageType: null,
+            error: null,
+          };
+          results.push(skipped);
+          onParcel?.(skipped, results.length, seedRows.length);
+          continue;
+        }
+      }
       const fixturePath = path.join(htmlDir, `${parcelId}.html`);
       const inputPath = path.join(parcelDir, "input.html");
       let body;
@@ -182,8 +245,8 @@ export async function captureAndTransform({
       if (await pathExists(fixturePath)) {
         body = await readFile(fixturePath, "utf8");
         await copyFile(fixturePath, inputPath);
-      } else if (bulkGisByApn instanceof Map && bulkGisByApn.has(toText(parcelId))) {
-        const entry = bulkGisByApn.get(toText(parcelId));
+      } else if (bulkEntry) {
+        const entry = bulkEntry;
         assertExactPageRequest(entry.sourceHttpRequest);
         seedRow = entry.row;
         body = `${JSON.stringify([entry.gisRecord])}\n`;
@@ -216,7 +279,8 @@ export async function captureAndTransform({
         );
       }
 
-      assertGisMatchesRequestedApn(body, parcelId);
+      const gisRecord = assertGisMatchesRequestedApn(body, parcelId);
+      assertGeometryJoinKey(gisRecord, seedRow);
       const seedFiles = buildSeedJsonFiles(seedRow);
       await writeFile(path.join(parcelDir, "property_seed.json"), `${JSON.stringify(seedFiles.propertySeed, null, 2)}\n`);
       await writeFile(
@@ -242,21 +306,28 @@ export async function captureAndTransform({
         parcelId,
         captureKind,
         transformSuccess: true,
+        skipped: false,
         propertyUsageType: typeof result.property_usage_type === "string" ? result.property_usage_type : null,
         error: null,
       });
+      onParcel?.(results[results.length - 1], results.length, seedRows.length);
     } catch (error) {
-      results.push({
+      const failed = {
         parcelId,
         captureKind: null,
         transformSuccess: false,
+        skipped: false,
         propertyUsageType: null,
         error: error instanceof Error ? error.message : String(error),
-      });
+      };
+      results.push(failed);
+      onParcel?.(failed, results.length, seedRows.length);
     }
   }
   const manifest = { county: COUNTY_KEY, outputDir, results };
-  await writeFile(path.join(outputDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  if (writeManifest) {
+    await writeFile(path.join(outputDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  }
   return manifest;
 }
 

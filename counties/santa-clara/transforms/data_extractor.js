@@ -66,6 +66,139 @@ function link(fileName) {
   return { "/": `./${fileName}` };
 }
 
+function selectRequestsTheGeom(sourceHttpRequest) {
+  const raw = sourceHttpRequest?.multiValueQueryString?.$select;
+  const values = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
+  for (const value of values) {
+    for (const field of String(value).split(",")) {
+      if (field.trim() === "the_geom") return true;
+    }
+  }
+  return false;
+}
+
+function parseTheGeom(value) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) throw new Error("GIS the_geom is empty");
+    return JSON.parse(trimmed);
+  }
+  if (value && typeof value === "object") return value;
+  throw new Error("GIS the_geom is not GeoJSON");
+}
+
+function coordinateInRange(longitude, latitude) {
+  return (
+    Number.isFinite(longitude) &&
+    Number.isFinite(latitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
+  );
+}
+
+function pushPosition(positions, pair) {
+  if (!Array.isArray(pair) || pair.length < 2) return;
+  const longitude = Number(pair[0]);
+  const latitude = Number(pair[1]);
+  if (!coordinateInRange(longitude, latitude)) return;
+  positions.push([longitude, latitude]);
+}
+
+function walkPositions(geometry, positions) {
+  if (!geometry || typeof geometry !== "object") {
+    throw new Error("GIS the_geom is not GeoJSON");
+  }
+  const type = geometry.type;
+  const coordinates = geometry.coordinates;
+  if (type === "Point") {
+    pushPosition(positions, coordinates);
+  } else if (type === "MultiPoint" || type === "LineString") {
+    for (const pair of coordinates || []) pushPosition(positions, pair);
+  } else if (type === "MultiLineString" || type === "Polygon") {
+    for (const line of coordinates || []) {
+      for (const pair of line || []) pushPosition(positions, pair);
+    }
+  } else if (type === "MultiPolygon") {
+    for (const polygon of coordinates || []) {
+      for (const ring of polygon || []) {
+        for (const pair of ring || []) pushPosition(positions, pair);
+      }
+    }
+  } else if (type === "GeometryCollection") {
+    for (const child of geometry.geometries || []) walkPositions(child, positions);
+  } else {
+    throw new Error(`Unsupported GIS the_geom type ${String(type)}`);
+  }
+}
+
+function exteriorRings(geometry, rings) {
+  if (!geometry || typeof geometry !== "object") return;
+  const type = geometry.type;
+  const coordinates = geometry.coordinates;
+  if (type === "Polygon" && Array.isArray(coordinates) && Array.isArray(coordinates[0])) {
+    rings.push(coordinates[0]);
+  } else if (type === "MultiPolygon" && Array.isArray(coordinates)) {
+    for (const polygon of coordinates) {
+      if (Array.isArray(polygon) && Array.isArray(polygon[0])) rings.push(polygon[0]);
+    }
+  } else if (type === "GeometryCollection" && Array.isArray(geometry.geometries)) {
+    for (const child of geometry.geometries) exteriorRings(child, rings);
+  }
+}
+
+function ringToPolygon(ring) {
+  const points = [];
+  for (const pair of ring || []) {
+    if (!Array.isArray(pair) || pair.length < 2) continue;
+    const longitude = Number(pair[0]);
+    const latitude = Number(pair[1]);
+    if (!coordinateInRange(longitude, latitude)) continue;
+    points.push({ latitude, longitude });
+  }
+  return points.length >= 3 ? points : null;
+}
+
+// No representative-point helper exists in this repo. latitude/longitude are
+// the bounding-box center of every the_geom coordinate. GeoJSON order is
+// longitude, latitude. polygon is the exterior ring with the most vertices
+// (holes stay out of that ring). Lexicon geometry: latitude/longitude
+// number|null, polygon optional minItems 3.
+function geometryRecordFromTheGeom(theGeom, sourceHttpRequest, requestIdentifier) {
+  const geometry = parseTheGeom(theGeom);
+  const positions = [];
+  walkPositions(geometry, positions);
+  if (positions.length === 0) {
+    throw new Error("GIS the_geom did not contain in-range coordinates");
+  }
+  let minLongitude = Infinity;
+  let maxLongitude = -Infinity;
+  let minLatitude = Infinity;
+  let maxLatitude = -Infinity;
+  for (const [longitude, latitude] of positions) {
+    if (longitude < minLongitude) minLongitude = longitude;
+    if (longitude > maxLongitude) maxLongitude = longitude;
+    if (latitude < minLatitude) minLatitude = latitude;
+    if (latitude > maxLatitude) maxLatitude = latitude;
+  }
+  const rings = [];
+  exteriorRings(geometry, rings);
+  let polygon = null;
+  for (const ring of rings) {
+    const candidate = ringToPolygon(ring);
+    if (candidate && (polygon == null || candidate.length > polygon.length)) polygon = candidate;
+  }
+  const record = {
+    latitude: (minLatitude + maxLatitude) / 2,
+    longitude: (minLongitude + maxLongitude) / 2,
+    source_http_request: sourceHttpRequest,
+    request_identifier: requestIdentifier,
+  };
+  if (polygon) record.polygon = polygon;
+  return record;
+}
+
 const gis = loadGisRecord();
 const propertySeed = readJson("property_seed.json");
 const unnormalizedAddress = readJson("unnormalized_address.json");
@@ -87,7 +220,8 @@ const countyGroupCid = manifest.County.ipfsCid;
 const seedGroupCid = manifest.Seed.ipfsCid;
 
 // GIS extras with no live class property (additionalProperties: false, no
-// source_payload on property/parcel/lot/address): objectid, tax_rate_area,
+// source_payload on property/parcel/lot/address): objectid (geometry_join_key
+// only; not a geometry field), tax_rate_area,
 // jurisdiction, number_of_situs_address, shape_length, shape_area,
 // situs_house_number(_suffix), situs_street_direction/name/type, situs_unit_number.
 // City/state/ZIP map onto the Address unnormalized branch.
@@ -156,13 +290,34 @@ writeData("relationship_property_parcel.json", rel("property.json", "parcel.json
 writeData("relationship_property_lot.json", rel("property.json", "lot.json"));
 writeData("address_has_parcel.json", rel("address.json", "parcel.json"));
 
+// County parcel_has_geometry is an array of parcel_to_geometry
+// (parcel → geometry). address_has_geometry is a separate single
+// address_to_geometry link and is not used: the_geom is the parcel polygon.
+let parcelGeometryRelationship = null;
+if (gis.the_geom != null) {
+  if (!selectRequestsTheGeom(sourceHttpRequest)) {
+    throw new Error("GIS the_geom is present but source_http_request $select did not request the_geom");
+  }
+  if (!text(gis.objectid)) {
+    throw new Error("GIS the_geom is present but objectid (geometry_join_key) is missing");
+  }
+  writeData("geometry.json", geometryRecordFromTheGeom(gis.the_geom, sourceHttpRequest, requestIdentifier));
+  writeData("relationship_parcel_geometry.json", rel("parcel.json", "geometry.json"));
+  parcelGeometryRelationship = "relationship_parcel_geometry.json";
+}
+
+const countyRelationships = {
+  property_has_address: link("relationship_property_address.json"),
+  property_has_parcel: [link("relationship_property_parcel.json")],
+  property_has_lot: link("relationship_property_lot.json"),
+};
+if (parcelGeometryRelationship) {
+  countyRelationships.parcel_has_geometry = [link(parcelGeometryRelationship)];
+}
+
 writeData(`${countyGroupCid}.json`, {
   label: "County",
-  relationships: {
-    property_has_address: link("relationship_property_address.json"),
-    property_has_parcel: [link("relationship_property_parcel.json")],
-    property_has_lot: link("relationship_property_lot.json"),
-  },
+  relationships: countyRelationships,
 });
 
 writeData(`${seedGroupCid}.json`, {

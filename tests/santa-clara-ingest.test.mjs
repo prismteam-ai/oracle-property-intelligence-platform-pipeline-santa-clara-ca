@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,11 +20,13 @@ import {
 } from "../counties/santa-clara/page-capture.mjs";
 import {
   assertGisMatchesRequestedApn,
+  assertGeometryJoinKey,
   buildSourceHttpRequest,
   captureAndTransform,
   validateRun,
   hasCompletedTransform,
 } from "../counties/santa-clara/adapter.mjs";
+import { mapTransformedFilesToQueryTableRow } from "../counties/santa-clara/query-table.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FIXTURE_DIR = path.join(ROOT, "fixtures", "santa-clara-replay");
@@ -100,6 +102,7 @@ test("five verified APNs transform to property.json + parcel.json zips", async (
       );
       assert.equal(property.parcel_identifier, row.parcel_id);
       assert.equal(property.source_http_request.url, SOCRATA_RESOURCE_URL);
+      await assert.rejects(readFile(path.join(outputDir, row.parcel_id, "data", "geometry.json")));
     }
   } finally {
     await rm(outputDir, { recursive: true, force: true });
@@ -128,6 +131,7 @@ test("captured page $offset and $limit survive into entity source_http_request",
           assert.equal(parsed.searchParams.get("$offset"), "40");
           assert.equal(parsed.searchParams.get("$limit"), "2");
           assert.equal(parsed.searchParams.get("$order"), "objectid");
+          assert.match(parsed.searchParams.get("$select") ?? "", /(?:^|,)the_geom(?:,|$)/);
           assert.equal(parsed.origin + parsed.pathname, SOCRATA_RESOURCE_URL);
           return {
             ok: true,
@@ -257,5 +261,259 @@ test("loadPageCapture fails closed when SHA-256 does not match page.json", async
     await assert.rejects(() => loadPageCapture(pageDir), /digest mismatch/);
   } finally {
     await rm(pageDir, { recursive: true, force: true });
+  }
+});
+
+test("geometry_join_key must match the captured objectid", () => {
+  assert.throws(
+    () => assertGeometryJoinKey({ apn: "12345678", objectid: "9" }, { geometry_join_key: "10" }),
+    /geometry_join_key 10 does not match GIS objectid 9/,
+  );
+});
+
+test("captured the_geom becomes parcel geometry and query-table coordinates", async () => {
+  const runtimeRoot = defaultRuntimeRoot();
+  const pageDir = await mkdtemp(path.join(tmpdir(), "scc-geom-page-"));
+  const htmlDir = await mkdtemp(path.join(tmpdir(), "scc-geom-html-"));
+  const outputDir = await mkdtemp(path.join(tmpdir(), "scc-geom-out-"));
+  const theGeom = {
+    type: "MultiPolygon",
+    coordinates: [
+      [[[-122, 37], [-121, 37], [-121, 38], [-122, 37]]],
+      [
+        [
+          [-121.5, 37.2],
+          [-121.4, 37.2],
+          [-121.4, 37.3],
+          [-121.3, 37.25],
+          [-121.5, 37.2],
+        ],
+        [
+          [-121.48, 37.22],
+          [-121.46, 37.22],
+          [-121.44, 37.23],
+          [-121.46, 37.24],
+          [-121.48, 37.24],
+          [-121.48, 37.22],
+        ],
+      ],
+    ],
+  };
+  try {
+    const records = [
+      {
+        apn: "12345678",
+        objectid: "77",
+        situs_city_name: "SAN JOSE",
+        situs_state_code: "CA",
+        situs_zip_code: "95110",
+        the_geom: theGeom,
+      },
+    ];
+    const raw = Buffer.from(`${JSON.stringify(records)}\n`, "utf8");
+    const captured = await captureSocrataPage({
+      offset: 0,
+      limit: 1,
+      outDir: pageDir,
+      fetchImpl: async (url) => {
+        const parsed = new URL(String(url));
+        assert.match(parsed.searchParams.get("$select") ?? "", /(?:^|,)the_geom(?:,|$)/);
+        return { ok: true, arrayBuffer: async () => raw };
+      },
+    });
+    const bulkGisByApn = indexBulkGisFromPageCapture(captured);
+    const entry = bulkGisByApn.get("12345678");
+    assert.equal(entry.row.geometry_join_key, "77");
+    assert.equal(entry.row.objectid, "77");
+    const manifest = await captureAndTransform({
+      seedRows: [entry.row],
+      htmlDir,
+      outputDir,
+      liveFetch: false,
+      bulkGisByApn,
+      runtimeRoot,
+    });
+    assert.equal(manifest.results[0].transformSuccess, true, JSON.stringify(manifest.results));
+    const dataDir = path.join(outputDir, "12345678", "data");
+    const geometry = JSON.parse(await readFile(path.join(dataDir, "geometry.json"), "utf8"));
+    assert.equal(geometry.latitude, 37.5);
+    assert.equal(geometry.longitude, -121.5);
+    assert.equal(geometry.polygon.length, 5);
+    assert.deepEqual(geometry.polygon[0], { latitude: 37.2, longitude: -121.5 });
+    assert.equal(geometry.polygon.some((point) => point.longitude === -121.48), false);
+    assert.equal(geometry.request_identifier, "12345678");
+    assert.match(geometry.source_http_request.multiValueQueryString.$select[0], /(?:^|,)the_geom(?:,|$)/);
+    const relationship = JSON.parse(await readFile(path.join(dataDir, "relationship_parcel_geometry.json"), "utf8"));
+    assert.deepEqual(relationship, {
+      from: { "/": "./parcel.json" },
+      to: { "/": "./geometry.json" },
+    });
+    const names = await readdir(dataDir);
+    let countyRoot = null;
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      const parsed = JSON.parse(await readFile(path.join(dataDir, name), "utf8"));
+      if (parsed.label === "County") countyRoot = parsed;
+    }
+    assert.deepEqual(countyRoot.relationships.parcel_has_geometry, [
+      { "/": "./relationship_parcel_geometry.json" },
+    ]);
+    assert.equal(countyRoot.relationships.address_has_geometry, undefined);
+    const files = {};
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      files[name] = JSON.parse(await readFile(path.join(dataDir, name), "utf8"));
+    }
+    const queryRow = await mapTransformedFilesToQueryTableRow({
+      parcelId: "12345678",
+      files,
+      seedRow: { ...entry.row, latitude: 1, longitude: 2 },
+      runtimeRoot,
+    });
+    assert.equal(queryRow.latitude, 37.5);
+    assert.equal(queryRow.longitude, -121.5);
+
+    const again = await captureAndTransform({
+      seedRows: [entry.row],
+      htmlDir,
+      outputDir,
+      liveFetch: false,
+      bulkGisByApn,
+      skipCompleted: true,
+      runtimeRoot,
+    });
+    assert.equal(again.results[0].skipped, true);
+  } finally {
+    await rm(pageDir, { recursive: true, force: true });
+    await rm(htmlDir, { recursive: true, force: true });
+    await rm(outputDir, { recursive: true, force: true });
+  }
+});
+
+test("the_geom on a request that did not select it is not transformed", async () => {
+  const runtimeRoot = defaultRuntimeRoot();
+  const htmlDir = await mkdtemp(path.join(tmpdir(), "scc-geom-prov-html-"));
+  const outputDir = await mkdtemp(path.join(tmpdir(), "scc-geom-prov-out-"));
+  try {
+    const sourceHttpRequest = {
+      method: "GET",
+      url: SOCRATA_RESOURCE_URL,
+      multiValueQueryString: {
+        $select: ["apn,objectid"],
+        $order: ["objectid"],
+        $limit: ["1"],
+        $offset: ["0"],
+      },
+    };
+    const manifest = await captureAndTransform({
+      seedRows: [{ parcel_id: "12345678" }],
+      htmlDir,
+      outputDir,
+      liveFetch: false,
+      bulkGisByApn: new Map([
+        [
+          "12345678",
+          {
+            row: {
+              parcel_id: "12345678",
+              objectid: "77",
+              geometry_join_key: "77",
+              method: sourceHttpRequest.method,
+              url: sourceHttpRequest.url,
+              multiValueQueryString: JSON.stringify(sourceHttpRequest.multiValueQueryString),
+              capture_sha256: "abc",
+            },
+            gisRecord: {
+              apn: "12345678",
+              objectid: "77",
+              the_geom: { type: "Point", coordinates: [-121.5, 37.5] },
+            },
+            sourceHttpRequest,
+            captureSha256: "abc",
+            captureFile: "page.json",
+            pageOffset: "0",
+            pageLimit: "1",
+            sourceRetrievedAt: "2026-09-29T18:10:00.000Z",
+            sourceDatasetUrl: "https://data.sccgov.org/Government/Parcels/ubcd-cewv",
+            captureKind: "socrata_paged_json",
+          },
+        ],
+      ]),
+      runtimeRoot,
+    });
+    assert.equal(manifest.results[0].transformSuccess, false);
+    assert.match(manifest.results[0].error, /\$select did not request the_geom/);
+  } finally {
+    await rm(htmlDir, { recursive: true, force: true });
+    await rm(outputDir, { recursive: true, force: true });
+  }
+});
+
+test("completed zip without geometry is transformed again when the capture has the_geom", async () => {
+  const runtimeRoot = defaultRuntimeRoot();
+  const pageDir = await mkdtemp(path.join(tmpdir(), "scc-geom-refresh-page-"));
+  const htmlDir = await mkdtemp(path.join(tmpdir(), "scc-geom-refresh-html-"));
+  const outputDir = await mkdtemp(path.join(tmpdir(), "scc-geom-refresh-out-"));
+  try {
+    const withoutGeom = Buffer.from(
+      `${JSON.stringify([{ apn: "12345678", objectid: "77", situs_state_code: "CA" }])}\n`,
+      "utf8",
+    );
+    const first = await captureSocrataPage({
+      offset: 0,
+      limit: 1,
+      outDir: pageDir,
+      fetchImpl: async () => ({ ok: true, arrayBuffer: async () => withoutGeom }),
+    });
+    const firstIndex = indexBulkGisFromPageCapture(first);
+    const firstManifest = await captureAndTransform({
+      seedRows: [[...firstIndex.values()][0].row],
+      htmlDir,
+      outputDir,
+      liveFetch: false,
+      bulkGisByApn: firstIndex,
+      runtimeRoot,
+    });
+    assert.equal(firstManifest.results[0].transformSuccess, true, JSON.stringify(firstManifest.results));
+    await assert.rejects(readFile(path.join(outputDir, "12345678", "data", "geometry.json")));
+
+    const withGeom = {
+      type: "Polygon",
+      coordinates: [[[-122, 37], [-121, 37], [-121, 38], [-122, 37]]],
+    };
+    const secondRaw = Buffer.from(
+      `${JSON.stringify([{ apn: "12345678", objectid: "77", situs_state_code: "CA", the_geom: withGeom }])}\n`,
+      "utf8",
+    );
+    const secondDir = await mkdtemp(path.join(tmpdir(), "scc-geom-refresh-page2-"));
+    try {
+      const second = await captureSocrataPage({
+        offset: 0,
+        limit: 1,
+        outDir: secondDir,
+        fetchImpl: async () => ({ ok: true, arrayBuffer: async () => secondRaw }),
+      });
+      const secondIndex = indexBulkGisFromPageCapture(second);
+      const refreshed = await captureAndTransform({
+        seedRows: [[...secondIndex.values()][0].row],
+        htmlDir,
+        outputDir,
+        liveFetch: false,
+        bulkGisByApn: secondIndex,
+        skipCompleted: true,
+        runtimeRoot,
+      });
+      assert.equal(refreshed.results[0].skipped, false);
+      assert.equal(refreshed.results[0].transformSuccess, true, JSON.stringify(refreshed.results));
+      const geometry = JSON.parse(await readFile(path.join(outputDir, "12345678", "data", "geometry.json"), "utf8"));
+      assert.equal(geometry.latitude, 37.5);
+      assert.equal(geometry.longitude, -121.5);
+    } finally {
+      await rm(secondDir, { recursive: true, force: true });
+    }
+  } finally {
+    await rm(pageDir, { recursive: true, force: true });
+    await rm(htmlDir, { recursive: true, force: true });
+    await rm(outputDir, { recursive: true, force: true });
   }
 });

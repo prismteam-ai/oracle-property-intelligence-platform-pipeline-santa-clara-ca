@@ -34,6 +34,10 @@ export const SOCRATA_SELECT_FIELDS = Object.freeze([
   "shape_area",
 ]);
 export const SOCRATA_SELECT = SOCRATA_SELECT_FIELDS.join(",");
+// Capture requests include the_geom. The seed CSV select stays SOCRATA_SELECT
+// and still does not store polygons; objectid remains geometry_join_key.
+export const SOCRATA_CAPTURE_SELECT_FIELDS = Object.freeze([...SOCRATA_SELECT_FIELDS, "the_geom"]);
+export const SOCRATA_CAPTURE_SELECT = SOCRATA_CAPTURE_SELECT_FIELDS.join(",");
 export const SOCRATA_PAGE_LIMIT = 50000;
 export const SOCRATA_SOURCE_DATASET_URL = "https://data.sccgov.org/Government/Parcels/ubcd-cewv";
 
@@ -94,7 +98,7 @@ export function toText(value) {
 
 export function socrataQueryForApn(parcelId) {
   return {
-    $select: [SOCRATA_SELECT],
+    $select: [SOCRATA_CAPTURE_SELECT],
     $where: [`apn='${parcelId}'`],
     $limit: ["1"],
   };
@@ -109,7 +113,7 @@ export function socrataQueryForPage({ offset, limit = SOCRATA_PAGE_LIMIT } = {})
     throw new Error("paginated Socrata request requires exact $limit recorded at capture time");
   }
   return {
-    $select: [SOCRATA_SELECT],
+    $select: [SOCRATA_CAPTURE_SELECT],
     $order: ["objectid"],
     $limit: [String(limit)],
     $offset: [String(offset)],
