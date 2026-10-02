@@ -370,6 +370,7 @@ export async function buildReconciliationArtifacts({
   const expectedCount = seedRows.length;
   const rows = [];
   const missing = [];
+  let seen = 0;
   for (const row of seedRows) {
     const parcelId = row.parcel_id;
     const zipPath = path.join(outputDir, parcelId, "transformed.zip");
@@ -383,9 +384,14 @@ export async function buildReconciliationArtifacts({
     } catch {
       missing.push(parcelId);
     }
+    seen += 1;
+    if (seen % 20000 === 0) {
+      process.stderr.write(`query-table ${seen}/${expectedCount} missing=${missing.length}\n`);
+    }
   }
   if (missing.length > 0) {
-    throw new Error(`Missing transformed.zip/property.json for seed APNs: ${missing.join(", ")}`);
+    const sample = missing.slice(0, 20).join(", ");
+    throw new Error(`Missing transformed.zip/property.json for ${missing.length} seed APNs. First: ${sample}`);
   }
 
   const parquetPath = path.join(workingDir, "query-table.parquet");
