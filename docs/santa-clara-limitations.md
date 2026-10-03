@@ -23,7 +23,7 @@ This is the honest limit of the free sources. The county archive, the tables, th
 - **Two example gateways.** `https://ipfs.io/ipfs/` and `https://dweb.link/ipfs/` returned HTTP 403, 429, or the Cloudflare body `blocked` from this network on 2026-10-02. The same bytes were fetched from `https://ipfs.filebase.io/ipfs/` and from `https://gateway.pinata.cloud/ipfs/` for the county root, the tables root, the query table, the roof parquet, the roof JSON, and both coverage records. Pinata is not this project’s pinning account. Digest checks are in `docs/publication/santa-clara-run-manifest.json`.
 - **DuckDB on this Mac.** The DuckDB package is not installed here. The query files are Parquet and the roof-age SQL is in the manifest. The five APNs above are the expected result.
 - **The website does not open the 2.7 GB archive.** The CRM map asks Santa Clara’s live GIS service for parcels inside a circle. It reads the San Jose roof list from Filebase. Radius search does not download the county archive.
-- **Hosted demo.** Pull request #1 does not yet contain a public Vercel URL. The CRM branch is on GitHub. `https://roofing-crm.vercel.app` is a different application and is not this Next.js CRM.
+- **Hosted demo.** The CRM is deployed at `https://roofing-epkbmxen5-quinlen-schachle-s-projects.vercel.app`. `https://roofing-crm.vercel.app` is a different application and is not this Next.js CRM. The draft pull requests have not been marked ready for review.
 
 ## What a demo should say out loud
 
