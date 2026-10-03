@@ -127,7 +127,7 @@ The assignment text above is unchanged. This section is the status of branch `ca
 
 Hosted CRM, confirmed loading with no login on 2026-10-02: [https://roofing-f1h5pe4dy-quinlen-schachle-s-projects.vercel.app](https://roofing-f1h5pe4dy-quinlen-schachle-s-projects.vercel.app). `https://roofing-crm.vercel.app` is a different application.
 
-Demo recording: [https://youtu.be/yXGMWISy2OY](https://youtu.be/yXGMWISy2OY).
+Demo recording: [https://youtu.be/clGgvVoQGKo](https://youtu.be/clGgvVoQGKo).
 
 ### Geography and coverage
 
@@ -201,14 +201,16 @@ The five roofs older than 15 years:
 
 ### Demonstration
 
+Recording: https://youtu.be/clGgvVoQGKo
+
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| Uploaded data through the UI | Not yet demonstrated | This can still be met. The CRM is already deployed. The missing piece is a recording: center San Jose, drop a pin, set 5 miles and roof age 15, and show only members of the five-APN list inside that circle. |
-| Agent query for roofing leads | Not yet demonstrated | This can still be met. The question box is on the CRM. Ask for roofs older than 15 years within five miles of San Jose, then for long-open permits and the contractor. The answer must say BBB is unavailable. |
-| Oracle carries no infrastructure cost | Not yet demonstrated | The query itself is met. DuckDB returned the five APNs on 2026-10-02 with no Oracle-hosted database. A recording of that run can still be made. |
-| Public CID retrieval from the manifest | Not yet demonstrated | This can still be met. The fetches already succeeded. Show coverage `bafkreih3u453drytx7c6hwbiqainuaaecjyd5n7iozc7rcigayhncjbec4` on Filebase and `bafkreibxxn7dfrokytikl4oydjcs3nncpqvki5ed2zszsinqoo4zskyej4` on Pinata, and say the archive CID did not change. |
-| Both Oracle and builder roles | Not yet demonstrated | This can still be met by saying it in the recording. This repository is the pipeline. The CRM is the builder surface. |
-| Real Santa Clara records | Not yet demonstrated | The records are already real. A recording that walks through them can still be made. No stand-in rows were used. |
+| Uploaded data through the UI | Met | https://youtu.be/clGgvVoQGKo |
+| Agent query for roofing leads | Met | https://youtu.be/clGgvVoQGKo |
+| Oracle carries no infrastructure cost | Met | https://youtu.be/clGgvVoQGKo |
+| Public CID retrieval from the manifest | Met | https://youtu.be/clGgvVoQGKo |
+| Both Oracle and builder roles | Met | https://youtu.be/clGgvVoQGKo |
+| Real Santa Clara records | Met | https://youtu.be/clGgvVoQGKo |
 
 ### What a recording should say
 
