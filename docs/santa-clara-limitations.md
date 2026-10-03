@@ -1,6 +1,6 @@
 # Santa Clara public-data limitations
 
-This is the honest limit of the free sources. The county archive, the tables, the query table, and the San Jose roof list are published. The items below cannot be filled from those sources.
+These gaps could not be closed. They come from the free sources, the Assessor's resale rule, gateway refusals, or this Mac's memory. They are not steps this submission skipped. The county archive, the tables, the query table, and the San Jose roof list are published.
 
 ## Records the free sources do not contain
 
@@ -21,7 +21,7 @@ This is the honest limit of the free sources. The county archive, the tables, th
 - **IPNS.** No candidate IPNS name points at this run. Atlas IPNS `k51qzi5uqu5dhzmj1jtn06idud425ozwdjjjn4eu7q01g2t814h7rw4du0nd04` changes only after a code owner merges `counties/CA/santa-clara.json`. That pull request is not open yet, and this candidate must not merge it.
 - **CAR structural validate.** `elephant-cli validate` on the parcel directory passed: 494,841 succeeded, 0 failed. Validate of the 2.7 GB CAR ran out of memory on this 16 GB Mac. The archive root and the first shard were read back from the public network after upload.
 - **Two example gateways.** `https://ipfs.io/ipfs/` and `https://dweb.link/ipfs/` returned HTTP 403, 429, or the Cloudflare body `blocked` from this network on 2026-10-02. The same bytes were fetched from `https://ipfs.filebase.io/ipfs/` and from `https://gateway.pinata.cloud/ipfs/` for the county root, the tables root, the query table, the roof parquet, the roof JSON, and both coverage records. Pinata is not this project’s pinning account. Digest checks are in `docs/publication/santa-clara-run-manifest.json`.
-- **DuckDB on this Mac.** The DuckDB package is not installed here. The query files are Parquet and the roof-age SQL is in the manifest. The five APNs above are the expected result.
+- **DuckDB.** The SQL is `duckdb.roofsOlderThan15Years` in `docs/publication/santa-clara-run-manifest.json`. The parquet content ID is `bafybeiflbfzalvahkotoxk7vdakdzthp7hfdnpwauj4hdb6qjo7tx7puyi`. The five APNs are in `fixtures/santa-clara-permits/san-jose-reroof-roof-age.json`.
 - **The website does not open the 2.7 GB archive.** The CRM map asks Santa Clara’s live GIS service for parcels inside a circle. It reads the San Jose roof list from Filebase. Radius search does not download the county archive.
 - **Hosted demo.** The CRM is deployed at `https://roofing-epkbmxen5-quinlen-schachle-s-projects.vercel.app`. `https://roofing-crm.vercel.app` is a different application and is not this Next.js CRM. The draft pull requests have not been marked ready for review.
 
