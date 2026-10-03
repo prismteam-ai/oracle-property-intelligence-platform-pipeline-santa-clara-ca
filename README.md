@@ -127,6 +127,8 @@ The assignment text above is unchanged. This section is the status of branch `ca
 
 Hosted CRM, confirmed loading with no login on 2026-10-02: [https://roofing-f1h5pe4dy-quinlen-schachle-s-projects.vercel.app](https://roofing-f1h5pe4dy-quinlen-schachle-s-projects.vercel.app). `https://roofing-crm.vercel.app` is a different application.
 
+Demo recording: [https://youtu.be/yXGMWISy2OY](https://youtu.be/yXGMWISy2OY).
+
 ### Geography and coverage
 
 | Requirement | Status | Evidence |
