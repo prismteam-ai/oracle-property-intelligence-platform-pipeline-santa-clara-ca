@@ -23,7 +23,7 @@ These gaps could not be closed. They come from the free sources, the Assessor's 
 - **Two example gateways.** `https://ipfs.io/ipfs/` and `https://dweb.link/ipfs/` returned HTTP 403, 429, or the Cloudflare body `blocked` from this network on 2026-10-02. The same bytes were fetched from `https://ipfs.filebase.io/ipfs/` and from `https://gateway.pinata.cloud/ipfs/` for the county root, the tables root, the query table, the roof parquet, the roof JSON, and both coverage records. Pinata is not this project’s pinning account. Digest checks are in `docs/publication/santa-clara-run-manifest.json`.
 - **DuckDB.** The SQL is `duckdb.roofsOlderThan15Years` in `docs/publication/santa-clara-run-manifest.json`. The parquet content ID is `bafybeiflbfzalvahkotoxk7vdakdzthp7hfdnpwauj4hdb6qjo7tx7puyi`. The five APNs are in `fixtures/santa-clara-permits/san-jose-reroof-roof-age.json`.
 - **The website does not open the 2.7 GB archive.** The CRM map asks Santa Clara’s live GIS service for parcels inside a circle. It reads the San Jose roof list from Filebase. Radius search does not download the county archive.
-- **Hosted demo.** The CRM is deployed at `https://roofing-epkbmxen5-quinlen-schachle-s-projects.vercel.app`. `https://roofing-crm.vercel.app` is a different application and is not this Next.js CRM. The draft pull requests have not been marked ready for review.
+- **Hosted demo.** The CRM is deployed at `https://roofing-m5p5r6s3q-quinlen-schachle-s-projects.vercel.app`. `https://roofing-crm.vercel.app` is a different application and is not this Next.js CRM. The draft pull requests have not been marked ready for review.
 
 ## What a demo should say out loud
 

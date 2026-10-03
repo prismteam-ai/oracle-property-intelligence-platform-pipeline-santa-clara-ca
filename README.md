@@ -2,7 +2,7 @@
 
 ## Context
 
-This repository is the **data gathering and ingestion pipeline** that supplies the [Roofing CRM & Lead Identification UI](https://github.com/prismteam-ai/roofing-crm). The hosted CRM is [https://roofing-epkbmxen5-quinlen-schachle-s-projects.vercel.app](https://roofing-epkbmxen5-quinlen-schachle-s-projects.vercel.app). The CRM helps roofing companies explore properties in their service area, identify aging roofs and open roofing permits, and turn those signals into leads. This pipeline story covers collecting, loading, reconciling, and exposing the underlying property and permit datasets; the CRM UI/workflow itself is out of scope here.
+This repository is the **data gathering and ingestion pipeline** that supplies the [Roofing CRM & Lead Identification UI](https://github.com/prismteam-ai/roofing-crm). The hosted CRM is [https://roofing-m5p5r6s3q-quinlen-schachle-s-projects.vercel.app](https://roofing-m5p5r6s3q-quinlen-schachle-s-projects.vercel.app). The CRM helps roofing companies explore properties in their service area, identify aging roofs and open roofing permits, and turn those signals into leads. This pipeline story covers collecting, loading, reconciling, and exposing the underlying property and permit datasets; the CRM UI/workflow itself is out of scope here.
 
 The Oracle ingestion pipeline has been started, but the full **Santa Clara County, CA** dataset has not been completely uploaded, reconciled, or demonstrated. The infrastructure must be designed so Oracle does not carry ongoing infrastructure cost by default. For this candidate exercise, the candidate acts as both Oracle and builder: they are responsible for completing the pipeline and proving the low-cost infrastructure approach.
 
@@ -125,7 +125,7 @@ The pipeline must demonstrate that data is ingested on an ongoing basis (not a o
 
 The assignment text above is unchanged. This section is the status of branch `candidate-solution` as of 2026-10-02. Each requirement is marked **Met**, **Partial**, **Could not be met**, or **Not yet demonstrated**. **Could not be met** means the source, a legal term, a gateway refusal, or this Mac's memory blocked it. **Not yet demonstrated** means a recording can still be made. Limits are spelled out in [docs/santa-clara-limitations.md](docs/santa-clara-limitations.md). Content IDs, sizes, and SHA-256 digests are in [docs/publication/santa-clara-run-manifest.json](docs/publication/santa-clara-run-manifest.json). The draft pull requests have not been marked ready for review.
 
-Hosted CRM, confirmed loading with no login on 2026-10-02: [https://roofing-epkbmxen5-quinlen-schachle-s-projects.vercel.app](https://roofing-epkbmxen5-quinlen-schachle-s-projects.vercel.app). `https://roofing-crm.vercel.app` is a different application.
+Hosted CRM, confirmed loading with no login on 2026-10-02: [https://roofing-m5p5r6s3q-quinlen-schachle-s-projects.vercel.app](https://roofing-m5p5r6s3q-quinlen-schachle-s-projects.vercel.app). `https://roofing-crm.vercel.app` is a different application.
 
 ### Geography and coverage
 
